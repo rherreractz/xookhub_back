@@ -1,0 +1,41 @@
+# --- Web framework ---
+fastapi>=0.115,<0.116
+uvicorn[standard]>=0.30,<0.31
+python-multipart>=0.0.9,<0.1
+
+# --- Settings & validation ---
+pydantic>=2.8,<3
+pydantic-settings>=2.4,<3
+email-validator>=2.2,<3
+
+# --- Database ---
+sqlalchemy[asyncio]>=2.0,<2.1
+asyncpg>=0.29,<0.30
+alembic>=1.13,<1.14
+pgvector>=0.3.2,<0.4
+pypdf>=5.1,<6
+python-docx>=1.1,<2
+
+# --- Auth ---
+# [crypto] pulls in `cryptography`, required for ES256/RS256 verification
+# (Supabase's asymmetric JWTs) — without it, jwt.decode raises
+# InvalidAlgorithmError for these algorithms even with correct code.
+pyjwt[crypto]>=2.9,<3
+
+# --- Cache / rate limiting ---
+redis>=5.0,<6
+
+# --- Async task processing ---
+celery>=5.4,<5.5
+amqp>=5.2,<5.3
+
+# --- Object storage (document ingestion) ---
+minio>=7.2,<8
+
+# --- LLM / RAG (Google Gemini via the unified Gen AI SDK) ---
+google-genai>=1.0,<2
+
+# --- Dev / test tooling ---
+pytest>=8.3,<9
+pytest-asyncio>=0.24,<0.25
+httpx>=0.27,<0.28
