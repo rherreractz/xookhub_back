@@ -15,6 +15,12 @@ class ConversationCreate(BaseModel):
     title: str | None = Field(default=None, max_length=255)
 
 
+class ConversationUpdate(BaseModel):
+    """PATCH /conversations/{id} payload — renombra la conversación."""
+
+    title: str = Field(min_length=1, max_length=255)
+
+
 class ConversationRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

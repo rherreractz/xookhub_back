@@ -13,10 +13,13 @@ import logging
 import secrets
 from uuid import UUID
 
+
 import httpx
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
 
 from src.config import get_settings
 from src.core.exceptions import AuthorizationException, ConflictException, NotFoundException
@@ -81,6 +84,19 @@ class RoomService:
             .join(RoomMember, RoomMember.room_id == StudyRoom.id)
             .where(RoomMember.user_id == user_id)
             .order_by(StudyRoom.created_at.desc())
+        )
+        return list(result.scalars().all())
+
+    async def list_members(self, room_id: UUID, user_id: UUID) -> list[RoomMember]:
+        """Cualquier miembro (VIEWER+) puede ver la lista completa de
+        integrantes de su propia sala. `selectinload(RoomMember.user)`
+        evita un N+1 al denormalizar name/email en el router."""
+        await self.require_role(room_id, user_id, RoomRole.VIEWER)
+        result = await self._db.execute(
+            select(RoomMember)
+            .options(selectinload(RoomMember.user))
+            .where(RoomMember.room_id == room_id)
+            .order_by(RoomMember.joined_at)
         )
         return list(result.scalars().all())
 
@@ -304,6 +320,7 @@ class RoomService:
         result = await self._db.execute(
             select(GroupMessage)
             .where(GroupMessage.room_id == room_id)
+            .options(selectinload(GroupMessage.user))
             .order_by(GroupMessage.created_at.desc())
             .limit(limit)
         )

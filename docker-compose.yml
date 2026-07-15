@@ -95,6 +95,7 @@ services:
     volumes:
       - ./src:/app/src
       - ./alembic:/app/alembic
+    
     expose:
       - "8000"
     depends_on:

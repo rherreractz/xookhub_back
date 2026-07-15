@@ -51,6 +51,15 @@ class RoomMemberRead(BaseModel):
     joined_at: datetime
 
 
+class RoomMemberDetail(RoomMemberRead):
+    """RoomMemberRead + datos denormalizados del usuario, para que el
+    frontend pueda listar integrantes de una sala (nombre/correo) sin un
+    round-trip extra por persona."""
+
+    name: str | None = None
+    email: str
+
+
 class RoomMemberInvite(BaseModel):
     user_id: UUID
     room_role: RoomRole = RoomRole.MEMBER

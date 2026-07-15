@@ -147,6 +147,21 @@ async def generate_room_exam(
 
 
 @router.get(
+    "/api/v1/rooms/{room_id}/exams",
+    response_model=APIResponse[list[ExamRead]],
+)
+async def list_room_exams(
+    room_id: UUID,
+    user: SupabaseUser = Depends(verify_supabase_jwt),
+    db: AsyncSession = Depends(get_db),
+) -> APIResponse[list[ExamRead]]:
+    """Every exam generated in a room (any status), newest first — the
+    history view, analogous to how flashcard decks are listed."""
+    exams = await GenerationService(db).list_room_exams(room_id, user.id)
+    return APIResponse.success([ExamRead.model_validate(e) for e in exams])
+
+
+@router.get(
     "/api/v1/exams/{exam_id}",
     response_model=APIResponse[ExamDetail],
 )
@@ -167,6 +182,25 @@ async def get_exam(
 # --------------------------------------------------------------------------- #
 # Flashcards — decks
 # --------------------------------------------------------------------------- #
+@router.get(
+    "/api/v1/rooms/{room_id}/flashcards",
+    response_model=APIResponse[list[FlashcardRead]],
+)
+async def list_flashcards(
+    room_id: UUID,
+    deck_name: str | None = None,
+    user: SupabaseUser = Depends(verify_supabase_jwt),
+    db: AsyncSession = Depends(get_db),
+) -> APIResponse[list[FlashcardRead]]:
+    """Every flashcard in a room (optionally filtered to one deck) — how the
+    client sees a deck's actual cards, including ones never reviewed yet
+    (which `/flashcards/due` deliberately excludes)."""
+    cards = await GenerationService(db).list_flashcards(
+        room_id, user.id, deck_name=deck_name
+    )
+    return APIResponse.success([FlashcardRead.model_validate(c) for c in cards])
+
+
 @router.get(
     "/api/v1/rooms/{room_id}/flashcards/decks",
     response_model=APIResponse[list[RoomDeckRead]],

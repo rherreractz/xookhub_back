@@ -194,6 +194,26 @@ class GenerationService:
         )
         return [(name or "Sin nombre", count) for name, count in result.all()]
 
+    async def list_flashcards(
+        self, room_id: UUID, user_id: UUID, *, deck_name: str | None = None
+    ) -> list[Flashcard]:
+        """All flashcards in a room, optionally filtered to one deck.
+
+        Unlike `list_due_flashcards`, this doesn't require a prior
+        `FlashcardReview` — it's how the client sees a freshly generated
+        deck's actual cards for the first time, before any of them have
+        ever been reviewed.
+        """
+        await self._room_service.require_role(room_id, user_id, RoomRole.VIEWER)
+
+        stmt = select(Flashcard).where(Flashcard.room_id == room_id)
+        if deck_name is not None:
+            stmt = stmt.where(Flashcard.deck_name == deck_name)
+        stmt = stmt.order_by(Flashcard.created_at)
+
+        result = await self._db.execute(stmt)
+        return list(result.scalars().all())
+
     async def list_due_flashcards(
         self, user_id: UUID, *, now: datetime | None = None
     ) -> list[tuple[Flashcard, FlashcardReview]]:
@@ -429,6 +449,19 @@ class GenerationService:
             if exam is not None:
                 exam.status = ExamGenerationStatus.FAILED
                 await self._db.commit()
+
+    async def list_room_exams(self, room_id: UUID, user_id: UUID) -> list[Exam]:
+        """Every exam ever generated in a room (any status), newest first —
+        the room-wide counterpart to `list_flashcards`, so the client can
+        show a history of exams the same way it shows flashcard decks."""
+        await self._room_service.require_role(room_id, user_id, RoomRole.VIEWER)
+
+        result = await self._db.execute(
+            select(Exam)
+            .where(Exam.room_id == room_id)
+            .order_by(Exam.created_at.desc())
+        )
+        return list(result.scalars().all())
 
     async def _get_exam_authorized(
         self, exam_id: UUID, user_id: UUID, minimum: RoomRole

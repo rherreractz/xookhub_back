@@ -18,6 +18,7 @@ from src.rooms.schemas import (
     RoomCreate,
     RoomInviteCodeRead,
     RoomJoinRequest,
+    RoomMemberDetail,
     RoomMemberInvite,
     RoomMemberRead,
     RoomMemberRoleUpdate,
@@ -92,6 +93,25 @@ async def delete_room(
 ) -> APIResponse[None]:
     await RoomService(db).delete(room_id, user.id)
     return APIResponse.success(None)
+
+
+@router.get(
+    "/{room_id}/members",
+    response_model=APIResponse[list[RoomMemberDetail]],
+)
+async def list_members(
+    room_id: UUID,
+    user: SupabaseUser = Depends(verify_supabase_jwt),
+    db: AsyncSession = Depends(get_db),
+) -> APIResponse[list[RoomMemberDetail]]:
+    members = await RoomService(db).list_members(room_id, user.id)
+    payload = [
+        RoomMemberDetail.model_validate(m).model_copy(
+            update={"name": m.user.name, "email": m.user.email}
+        )
+        for m in members
+    ]
+    return APIResponse.success(payload)
 
 
 @router.post(

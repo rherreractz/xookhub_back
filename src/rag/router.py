@@ -26,6 +26,7 @@ from src.rag.schemas import (
     ConversationCreate,
     ConversationDetail,
     ConversationRead,
+    ConversationUpdate,
     MessageCreate,
     MessageRead,
 )
@@ -52,6 +53,23 @@ async def create_conversation(
 
 
 @router.get(
+    "/api/v1/rooms/{room_id}/conversations",
+    response_model=APIResponse[list[ConversationRead]],
+)
+async def list_conversations(
+    room_id: UUID,
+    user: SupabaseUser = Depends(verify_supabase_jwt),
+    db: AsyncSession = Depends(get_db),
+) -> APIResponse[list[ConversationRead]]:
+    """Historial de conversaciones DEL USUARIO ACTUAL en esta sala — no el
+    de otros miembros."""
+    conversations = await RAGService(db).list_conversations(room_id, user.id)
+    return APIResponse.success(
+        [ConversationRead.model_validate(c) for c in conversations]
+    )
+
+
+@router.get(
     "/api/v1/conversations/{conversation_id}",
     response_model=APIResponse[ConversationDetail],
 )
@@ -64,9 +82,45 @@ async def get_conversation(
     conversation = await service.get_conversation(conversation_id, user.id)
     messages = await service.list_messages(conversation_id, user.id)
 
-    detail = ConversationDetail.model_validate(conversation)
-    detail.messages = [MessageRead.model_validate(m) for m in messages]
+    # Built from ConversationRead's dump (not ConversationDetail.model_validate
+    # on the ORM object directly): ConversationDetail declares a `messages`
+    # field, so validating straight off `conversation` makes pydantic read
+    # `conversation.messages` — a lazy relationship — outside any awaited
+    # SQLAlchemy call, which raises MissingGreenlet.
+    detail = ConversationDetail(
+        **ConversationRead.model_validate(conversation).model_dump(),
+        messages=[MessageRead.model_validate(m) for m in messages],
+    )
     return APIResponse.success(detail)
+
+
+@router.patch(
+    "/api/v1/conversations/{conversation_id}",
+    response_model=APIResponse[ConversationRead],
+)
+async def rename_conversation(
+    conversation_id: UUID,
+    payload: ConversationUpdate,
+    user: SupabaseUser = Depends(verify_supabase_jwt),
+    db: AsyncSession = Depends(get_db),
+) -> APIResponse[ConversationRead]:
+    conversation = await RAGService(db).rename_conversation(
+        conversation_id, user.id, payload.title
+    )
+    return APIResponse.success(ConversationRead.model_validate(conversation))
+
+
+@router.delete(
+    "/api/v1/conversations/{conversation_id}",
+    response_model=APIResponse[None],
+)
+async def delete_conversation(
+    conversation_id: UUID,
+    user: SupabaseUser = Depends(verify_supabase_jwt),
+    db: AsyncSession = Depends(get_db),
+) -> APIResponse[None]:
+    await RAGService(db).delete_conversation(conversation_id, user.id)
+    return APIResponse.success(None)
 
 
 def _sse(event: str, data: dict) -> str:
@@ -80,17 +134,7 @@ async def stream_message(
     payload: MessageCreate,
     user: SupabaseUser = Depends(verify_supabase_jwt),
 ) -> StreamingResponse:
-    """Post a user message and stream the grounded assistant reply as SSE.
-
-    Emits three event types:
-      - `token`  : one per answer delta, `{"delta": "..."}`
-      - `done`   : terminal success marker, `{"conversation_id": "..."}`
-      - `error`  : terminal failure marker, `{"message": "..."}`
-
-    Owns its own AsyncSession (see module docstring) rather than the
-    request-scoped one.
-    """
-
+    
     async def event_generator() -> AsyncIterator[str]:
         async with AsyncSessionLocal() as db:
             service = RAGService(db)

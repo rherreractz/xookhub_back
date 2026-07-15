@@ -17,7 +17,11 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from src.core.exceptions import NotFoundException, ValidationException
+from src.core.exceptions import (
+    AuthorizationException,
+    NotFoundException,
+    ValidationException,
+)
 from src.documents.models import Document, DocumentChunk
 from src.rag.llm_adapter import ChatMessage, LLMAdapter, get_llm_adapter
 from src.rag.models import Conversation, Message
@@ -64,6 +68,20 @@ class RAGService:
         await self._db.refresh(conversation)
         return conversation
 
+    async def list_conversations(
+        self, room_id: UUID, user_id: UUID
+    ) -> list[Conversation]:
+        """Historial del USUARIO ACTUAL en esta sala — no el de todos los
+        miembros; cada quien ve únicamente sus propias conversaciones,
+        igual que Conversation.user_id ya lo scope-a a nivel de modelo."""
+        await self._room_service.require_role(room_id, user_id, RoomRole.VIEWER)
+        result = await self._db.execute(
+            select(Conversation)
+            .where(Conversation.room_id == room_id, Conversation.user_id == user_id)
+            .order_by(Conversation.created_at.desc())
+        )
+        return list(result.scalars().all())
+
     async def get_conversation(
         self, conversation_id: UUID, user_id: UUID
     ) -> Conversation:
@@ -76,6 +94,34 @@ class RAGService:
             conversation.room_id, user_id, RoomRole.VIEWER
         )
         return conversation
+
+    async def rename_conversation(
+        self, conversation_id: UUID, user_id: UUID, title: str
+    ) -> Conversation:
+        """Solo el DUEÑO de la conversación (no cualquier miembro de la
+        sala) puede renombrarla — a diferencia de get_conversation, que
+        solo exige pertenencia a la sala."""
+        conversation = await self.get_conversation(conversation_id, user_id)
+        if conversation.user_id != user_id:
+            raise AuthorizationException(
+                "Solo el dueño de la conversación puede renombrarla."
+            )
+        conversation.title = title
+        await self._db.flush()
+        await self._db.refresh(conversation)
+        return conversation
+
+    async def delete_conversation(self, conversation_id: UUID, user_id: UUID) -> None:
+        """Solo el dueño de la conversación puede eliminarla. El cascade
+        `all, delete-orphan` en Conversation.messages (rag/models.py) se
+        encarga de borrar también sus mensajes."""
+        conversation = await self.get_conversation(conversation_id, user_id)
+        if conversation.user_id != user_id:
+            raise AuthorizationException(
+                "Solo el dueño de la conversación puede eliminarla."
+            )
+        await self._db.delete(conversation)
+        await self._db.flush()
 
     async def list_messages(
         self, conversation_id: UUID, user_id: UUID
@@ -215,9 +261,7 @@ class RAGService:
             ChatMessage(role="user", content=build_quick_answer_user_turn(query, chunks)),
         ]
 
-        # No SSE here — this endpoint returns one plain JSON response, so we
-        # fully drain the (still token-by-token) stream and join it rather
-        # than adding a separate non-streaming adapter method just for this.
+    
         parts: list[str] = []
         async for delta in self._adapter.stream_chat(messages):
             parts.append(delta)
